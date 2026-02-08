@@ -1,49 +1,56 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
+from streamlit_server_state import server_state, server_state_lock
 import cv2
 import numpy as np
 import easyocr
 import re
 
-st.title("📍 Minecraft Proximity Link")
-st.write("Point your phone at the coordinates on your screen.")
+# 1. Setup Shared "Whiteboard" for Coordinates
+if "player_coords" not in server_state:
+    with server_state_lock["player_coords"]:
+        server_state["player_coords"] = {}
 
-# Initialize OCR reader
-@st.cache_resource
-def load_ocr():
-    return easyocr.Reader(['en'])
+st.title("🎙️ Minecraft Realm Proximity Chat")
 
-reader = load_ocr()
+# User Name Setup
+my_name = st.text_input("Enter your Minecraft Name:", "Player1")
 
-# Camera Input
-img_file = st.camera_input("Scan your coordinates")
+# 2. OCR Reading Part (The "Eyes")
+reader = st.cache_resource(lambda: easyocr.Reader(['en']))()
+img_file = st.camera_input("Scan Coordinates")
 
 if img_file:
-    # Convert image to OCR format
     file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
     image = cv2.imdecode(file_bytes, 1)
-    
-    # Run OCR
     results = reader.readtext(image)
     full_text = " ".join([res[1] for res in results])
-    
-    # Find numbers (X, Y, Z)
     coords = re.findall(r'-?\d+', full_text)
     
     if len(coords) >= 3:
         x, y, z = int(coords[0]), int(coords[1]), int(coords[2])
-        st.success(f"Detected: X: {x}, Y: {y}, Z: {z}")
-        
-        # PROXIMITY LOGIC
-        # Replace these with your friend's coordinates for testing
-        friend_x, friend_z = 100, 200 
-        distance = ((x - friend_x)**2 + (z - friend_z)**2)**0.5
-        
-        st.metric("Distance to Friend", f"{int(distance)} blocks")
-        
-        if distance < 15:
-            st.warning("🔊 THEY CAN HEAR YOU (Close)")
-        else:
-            st.info("🔇 TOO FAR (Out of range)")
-    else:
-        st.error("Could not read coordinates. Make sure they are clear in the photo.")
-      
+        # Write our coords to the shared whiteboard
+        with server_state_lock["player_coords"]:
+            server_state["player_coords"][my_name] = (x, z)
+        st.success(f"Position Locked: {x}, {z}")
+
+# 3. Voice Chat Part (The "Mouth")
+st.subheader("Join Voice Channel")
+webrtc_ctx = webrtc_streamer(
+    key="proximity-voice",
+    mode=WebRtcMode.SENDRECV,
+    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+    media_stream_constraints={"video": False, "audio": True},
+)
+
+# 4. Show who is nearby
+st.write("---")
+st.subheader("Nearby Players")
+if my_name in server_state["player_coords"]:
+    my_pos = server_state["player_coords"][my_name]
+    for p_name, p_pos in server_state["player_coords"].items():
+        if p_name != my_name:
+            dist = ((my_pos[0] - p_pos[0])**2 + (my_pos[1] - p_pos[1])**2)**0.5
+            status = "🔊 AUDIBLE" if dist < 20 else "🔇 TOO FAR"
+            st.write(f"**{p_name}**: {int(dist)} blocks away ({status})")
+            
