@@ -36,12 +36,28 @@ if img_file:
 
 # 3. Voice Chat Part (The "Mouth")
 st.subheader("Join Voice Channel")
+# Updated Voice Chat Section
 webrtc_ctx = webrtc_streamer(
     key="proximity-voice",
     mode=WebRtcMode.SENDRECV,
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-    media_stream_constraints={"video": False, "audio": True},
+    # Added more Google STUN servers for better connectivity
+    rtc_configuration={
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+            {"urls": ["stun:stun2.l.google.com:19302"]}
+        ]
+    },
+    media_stream_constraints={
+        "video": False, 
+        "audio": {
+            "echoCancellation": True,
+            "noiseSuppression": True,
+            "autoGainControl": True
+        }
+    },
 )
+
 
 # 4. Show who is nearby
 st.write("---")
